@@ -37,9 +37,15 @@ app.get('/', (req, res) => {
 // POST /api/users - Tạo user mới
 app.post('/api/users', async (req, res) => {
   try {
-    const newUser = new User({ username: req.body.username });
-    const user = await newUser.save();
-    res.json({ username: user.username, _id: String(user._id) });
+    const username = req.body.username;
+    if (!username) return res.json({ error: "Path `username` is required." });
+    
+    let user = await User.findOne({ username });
+    if (!user) {
+      user = new User({ username });
+      await user.save();
+    }
+    res.json({ username: user.username, _id: user._id.toString() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -49,20 +55,24 @@ app.post('/api/users', async (req, res) => {
 app.get('/api/users', async (req, res) => {
   try {
     const users = await User.find({});
-    res.json(users.map(u => ({ username: u.username, _id: String(u._id) })));
+    res.json(users.map(u => ({ username: u.username, _id: u._id.toString() })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Helper parsing date String format (YYYY-MM-DD) avoiding timezone shifts
-function parseDate(dateString) {
-  if (!dateString) return new Date();
-  const parts = dateString.split('-');
-  if (parts.length === 3) {
-    return new Date(parts[0], parts[1] - 1, parts[2]);
+// Helper for parsing date strings safely (handles standard UTC dates used by FCC runner)
+function parseDate(dateStr) {
+  if (!dateStr) return new Date();
+  const d = new Date(dateStr);
+  if (d.toString() === 'Invalid Date') {
+    return new Date();
   }
-  return new Date(dateString);
+  // If YYYY-MM-DD string format, append UTC time to avoid timezone offset shifts
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return new Date(dateStr + 'T00:00:00');
+  }
+  return d;
 }
 
 // POST /api/users/:_id/exercises - Thêm exercise cho user
@@ -77,8 +87,8 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
     const exerciseDate = parseDate(date);
 
     const newExercise = new Exercise({
-      userId: String(user._id),
-      description: String(description),
+      userId: user._id.toString(),
+      description: description,
       duration: parseInt(duration),
       date: exerciseDate
     });
@@ -86,11 +96,11 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
     const exercise = await newExercise.save();
 
     res.json({
-      _id: String(user._id),
+      _id: user._id.toString(),
       username: user.username,
-      description: exercise.description,
+      date: exercise.date.toDateString(),
       duration: exercise.duration,
-      date: exercise.date.toDateString()
+      description: exercise.description
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -100,57 +110,50 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
 // GET /api/users/:_id/logs - Lấy nhật ký tập luyện của user
 app.get('/api/users/:_id/logs', async function(req, res) {
   try {
-    const user = await User.findById(req.params._id);
+    const userId = req.params._id;
+    const user = await User.findById(userId);
 
     if (!user) {
-      return res.status(404).json({
-        error: 'User not found'
-      });
+      return res.status(404).json({ error: 'User not found' });
     }
 
-    const filter = {
-      userId: String(user._id)
-    };
+    const { from, to, limit } = req.query;
 
-    if (req.query.from || req.query.to) {
+    let filter = { userId: user._id.toString() };
+
+    if (from || to) {
       filter.date = {};
-
-      if (req.query.from) {
-        filter.date.$gte = parseDate(req.query.from);
+      if (from) {
+        filter.date.$gte = parseDate(from);
       }
-
-      if (req.query.to) {
-        filter.date.$lte = parseDate(req.query.to);
+      if (to) {
+        filter.date.$lte = parseDate(to);
       }
     }
 
     let query = Exercise.find(filter);
 
-    if (req.query.limit) {
-      query = query.limit(Number(req.query.limit));
+    if (limit) {
+      query = query.limit(parseInt(limit));
     }
 
-    const exercises = await query;
+    const exercises = await query.exec();
 
-    const log = exercises.map(function(exercise) {
-      return {
-        description: exercise.description,
-        duration: exercise.duration,
-        date: exercise.date.toDateString()
-      };
-    });
+    const log = exercises.map(ex => ({
+      description: ex.description,
+      duration: ex.duration,
+      date: ex.date.toDateString()
+    }));
 
     res.json({
-      _id: String(user._id),
+      _id: user._id.toString(),
       username: user.username,
       count: log.length,
       log: log
     });
 
   } catch (error) {
-    res.status(500).json({
-      error: error.message
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
