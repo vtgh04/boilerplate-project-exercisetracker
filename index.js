@@ -2,9 +2,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 
-const dns = require('dns');
 
-dns.setServers(['8.8.8.8', '8.8.4.4']);
+
 require('dotenv').config();
 
 const app = express();
@@ -18,7 +17,7 @@ app.use(express.urlencoded({ extended: false }));
 // Kết nối MongoDB
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Connected to MongoDB'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+  .catch(err => console.error('MongoDB Error:', err));
 
 
 // ====================
