@@ -1,8 +1,10 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const dns = require('dns');
 
-
+// Thêm DNS Google trực tiếp trong code
+dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 require('dotenv').config();
 
@@ -121,6 +123,17 @@ app.get('/api/users', async function(req, res) {
 });
 
 
+// Helper để parse ngày từ string YYYY-MM-DD không bị lệch múi giờ
+function parseDate(dateString) {
+  if (!dateString) return new Date();
+  const dateParts = dateString.split('-');
+  if (dateParts.length === 3) {
+    return new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+  }
+  const d = new Date(dateString);
+  return isNaN(d.getTime()) ? new Date() : d;
+}
+
 // ====================
 // ADD EXERCISE
 // POST /api/users/:_id/exercises
@@ -136,9 +149,7 @@ app.post('/api/users/:_id/exercises', async function(req, res) {
       });
     }
 
-    const exerciseDate = req.body.date
-      ? new Date(req.body.date)
-      : new Date();
+    const exerciseDate = parseDate(req.body.date);
 
     const exercise = new Exercise({
       userId: user._id,
@@ -150,11 +161,11 @@ app.post('/api/users/:_id/exercises', async function(req, res) {
     const savedExercise = await exercise.save();
 
     res.json({
+      _id: user._id.toString(),
       username: user.username,
-      description: savedExercise.description,
-      duration: savedExercise.duration,
       date: savedExercise.date.toDateString(),
-      _id: user._id
+      duration: savedExercise.duration,
+      description: savedExercise.description
     });
 
   } catch (error) {
@@ -184,25 +195,16 @@ app.get('/api/users/:_id/logs', async function(req, res) {
       userId: user._id
     };
 
-    // FROM
-    if (req.query.from) {
-      filter.date = {
-        ...filter.date,
-        $gte: new Date(req.query.from)
-      };
-    }
+    if (req.query.from || req.query.to) {
+      filter.date = {};
 
-    // TO
-    if (req.query.to) {
-      const toDate = new Date(req.query.to);
+      if (req.query.from) {
+        filter.date.$gte = parseDate(req.query.from);
+      }
 
-      // Bao gồm toàn bộ ngày "to"
-      toDate.setUTCHours(23, 59, 59, 999);
-
-      filter.date = {
-        ...filter.date,
-        $lte: toDate
-      };
+      if (req.query.to) {
+        filter.date.$lte = parseDate(req.query.to);
+      }
     }
 
     let query = Exercise.find(filter);
@@ -223,9 +225,9 @@ app.get('/api/users/:_id/logs', async function(req, res) {
     });
 
     res.json({
+      _id: user._id.toString(),
       username: user.username,
       count: log.length,
-      _id: user._id,
       log: log
     });
 
