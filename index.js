@@ -40,11 +40,9 @@ app.post('/api/users', async (req, res) => {
     const username = req.body.username;
     if (!username) return res.json({ error: "Path `username` is required." });
     
-    let user = await User.findOne({ username });
-    if (!user) {
-      user = new User({ username });
-      await user.save();
-    }
+    const user = new User({ username });
+    await user.save();
+    
     res.json({ username: user.username, _id: user._id.toString() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -61,16 +59,12 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// Helper for parsing date strings safely (handles standard UTC dates used by FCC runner)
+// Helper for parsing date strings safely
 function parseDate(dateStr) {
   if (!dateStr) return new Date();
   const d = new Date(dateStr);
   if (d.toString() === 'Invalid Date') {
     return new Date();
-  }
-  // If YYYY-MM-DD string format, append UTC time to avoid timezone offset shifts
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return new Date(dateStr + 'T00:00:00');
   }
   return d;
 }
@@ -84,7 +78,10 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const exerciseDate = parseDate(date);
+    let exerciseDate = date ? new Date(date) : new Date();
+    if (exerciseDate.toString() === 'Invalid Date') {
+      exerciseDate = new Date();
+    }
 
     const newExercise = new Exercise({
       userId: user._id.toString(),
@@ -124,10 +121,16 @@ app.get('/api/users/:_id/logs', async function(req, res) {
     if (from || to) {
       filter.date = {};
       if (from) {
-        filter.date.$gte = parseDate(from);
+        let fromDate = new Date(from);
+        if (fromDate.toString() !== 'Invalid Date') {
+          filter.date.$gte = fromDate;
+        }
       }
       if (to) {
-        filter.date.$lte = parseDate(to);
+        let toDate = new Date(to);
+        if (toDate.toString() !== 'Invalid Date') {
+          filter.date.$lte = toDate;
+        }
       }
     }
 
