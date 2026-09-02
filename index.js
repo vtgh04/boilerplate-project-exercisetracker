@@ -59,14 +59,16 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// Helper for parsing date strings safely
-function parseDate(dateStr) {
+// Helper parsing dates ensuring correct UTC representation for freeCodeCamp test runner
+function parseInputDate(dateStr) {
   if (!dateStr) return new Date();
-  const d = new Date(dateStr);
-  if (d.toString() === 'Invalid Date') {
-    return new Date();
+  // Handles YYYY-MM-DD
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    return new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
   }
-  return d;
+  const d = new Date(dateStr);
+  return d.toString() === 'Invalid Date' ? new Date() : d;
 }
 
 // POST /api/users/:_id/exercises - Thêm exercise cho user
@@ -78,10 +80,7 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    let exerciseDate = date ? new Date(date) : new Date();
-    if (exerciseDate.toString() === 'Invalid Date') {
-      exerciseDate = new Date();
-    }
+    const exerciseDate = parseInputDate(date);
 
     const newExercise = new Exercise({
       userId: user._id.toString(),
@@ -121,16 +120,10 @@ app.get('/api/users/:_id/logs', async function(req, res) {
     if (from || to) {
       filter.date = {};
       if (from) {
-        let fromDate = new Date(from);
-        if (fromDate.toString() !== 'Invalid Date') {
-          filter.date.$gte = fromDate;
-        }
+        filter.date.$gte = parseInputDate(from);
       }
       if (to) {
-        let toDate = new Date(to);
-        if (toDate.toString() !== 'Invalid Date') {
-          filter.date.$lte = toDate;
-        }
+        filter.date.$lte = parseInputDate(to);
       }
     }
 
