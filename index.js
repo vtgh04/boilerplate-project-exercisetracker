@@ -1,158 +1,250 @@
-const express = require('express')
-const app = express()
-const cors = require('cors')
-const mongoose = require('mongoose')
-const dns = require('dns')
-require('dotenv').config()
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
 
-dns.setServers(['8.8.8.8', '8.8.4.4'])
+const dns = require('dns');
 
-mongoose.connect(process.env.MONGO_URI);
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+require('dotenv').config();
 
-app.use(cors())
-app.use(express.static('public'))
+const app = express();
 
-// Middleware parse body
-app.use(express.urlencoded({ extended: true }))
-app.use(express.json())
+app.use(cors());
+app.use(express.static('public'));
 
-// Schemas & Models
+// Đọc dữ liệu form POST
+app.use(express.urlencoded({ extended: false }));
+
+// Kết nối MongoDB
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('Connected to MongoDB'))
+  .catch((err) => console.error('MongoDB connection error:', err));
+
+
+// ====================
+// SCHEMA & MODEL
+// ====================
+
 const userSchema = new mongoose.Schema({
-  username: { type: String, required: true }
+  username: {
+    type: String,
+    required: true
+  }
 });
+
 const User = mongoose.model('User', userSchema);
 
+
 const exerciseSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
-  description: { type: String, required: true },
-  duration: { type: Number, required: true },
-  date: { type: Date, required: true }
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+
+  description: {
+    type: String,
+    required: true
+  },
+
+  duration: {
+    type: Number,
+    required: true
+  },
+
+  date: {
+    type: Date,
+    required: true
+  }
 });
+
 const Exercise = mongoose.model('Exercise', exerciseSchema);
 
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/views/index.html')
+
+// ====================
+// HOME PAGE
+// ====================
+
+app.get('/', function(req, res) {
+  res.sendFile(__dirname + '/views/index.html');
 });
 
-// POST /api/users - Tạo user mới
-app.post('/api/users', async (req, res) => {
+
+// ====================
+// CREATE USER
+// POST /api/users
+// ====================
+
+app.post('/api/users', async function(req, res) {
   try {
-    const username = req.body.username;
-    if (!username) return res.json({ error: "Path `username` is required." });
-    
-    const user = new User({ username });
-    await user.save();
-    
-    res.json({ username: user.username, _id: user._id.toString() });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const user = new User({
+      username: req.body.username
+    });
+
+    const savedUser = await user.save();
+
+    res.json({
+      username: savedUser.username,
+      _id: savedUser._id
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
   }
 });
 
-// GET /api/users - Lấy tất cả users
-app.get('/api/users', async (req, res) => {
+
+// ====================
+// GET ALL USERS
+// GET /api/users
+// ====================
+
+app.get('/api/users', async function(req, res) {
   try {
     const users = await User.find({});
-    res.json(users.map(u => ({ username: u.username, _id: u._id.toString() })));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+
+    const result = users.map(function(user) {
+      return {
+        username: user.username,
+        _id: user._id
+      };
+    });
+
+    res.json(result);
+
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
   }
 });
 
-// Helper parsing dates ensuring correct UTC representation for freeCodeCamp test runner
-function parseInputDate(dateStr) {
-  if (!dateStr) return new Date();
-  // Handles YYYY-MM-DD
-  const parts = dateStr.split('-');
-  if (parts.length === 3) {
-    return new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
-  }
-  const d = new Date(dateStr);
-  return d.toString() === 'Invalid Date' ? new Date() : d;
-}
 
-// POST /api/users/:_id/exercises - Thêm exercise cho user
-app.post('/api/users/:_id/exercises', async (req, res) => {
-  const userId = req.params._id;
-  const { description, duration, date } = req.body;
+// ====================
+// ADD EXERCISE
+// POST /api/users/:_id/exercises
+// ====================
 
+app.post('/api/users/:_id/exercises', async function(req, res) {
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const user = await User.findById(req.params._id);
 
-    const exerciseDate = parseInputDate(date);
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
 
-    const newExercise = new Exercise({
-      userId: user._id.toString(),
-      description: description,
-      duration: parseInt(duration),
+    const exerciseDate = req.body.date
+      ? new Date(req.body.date)
+      : new Date();
+
+    const exercise = new Exercise({
+      userId: user._id,
+      description: req.body.description,
+      duration: Number(req.body.duration),
       date: exerciseDate
     });
 
-    const exercise = await newExercise.save();
+    const savedExercise = await exercise.save();
 
     res.json({
-      _id: user._id.toString(),
       username: user.username,
-      date: exercise.date.toDateString(),
-      duration: exercise.duration,
-      description: exercise.description
+      description: savedExercise.description,
+      duration: savedExercise.duration,
+      date: savedExercise.date.toDateString(),
+      _id: user._id
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
   }
 });
 
-// GET /api/users/:_id/logs - Lấy nhật ký tập luyện của user
+
+// ====================
+// GET USER LOG
+// GET /api/users/:_id/logs
+// ====================
+
 app.get('/api/users/:_id/logs', async function(req, res) {
   try {
-    const userId = req.params._id;
-    const user = await User.findById(userId);
+    const user = await User.findById(req.params._id);
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({
+        error: 'User not found'
+      });
     }
 
-    const { from, to, limit } = req.query;
+    const filter = {
+      userId: user._id
+    };
 
-    let filter = { userId: user._id.toString() };
+    // FROM
+    if (req.query.from) {
+      filter.date = {
+        ...filter.date,
+        $gte: new Date(req.query.from)
+      };
+    }
 
-    if (from || to) {
-      filter.date = {};
-      if (from) {
-        filter.date.$gte = parseInputDate(from);
-      }
-      if (to) {
-        filter.date.$lte = parseInputDate(to);
-      }
+    // TO
+    if (req.query.to) {
+      const toDate = new Date(req.query.to);
+
+      // Bao gồm toàn bộ ngày "to"
+      toDate.setUTCHours(23, 59, 59, 999);
+
+      filter.date = {
+        ...filter.date,
+        $lte: toDate
+      };
     }
 
     let query = Exercise.find(filter);
 
-    if (limit) {
-      query = query.limit(parseInt(limit));
+    // LIMIT
+    if (req.query.limit) {
+      query = query.limit(Number(req.query.limit));
     }
 
-    const exercises = await query.exec();
+    const exercises = await query;
 
-    const log = exercises.map(ex => ({
-      description: ex.description,
-      duration: ex.duration,
-      date: ex.date.toDateString()
-    }));
+    const log = exercises.map(function(exercise) {
+      return {
+        description: exercise.description,
+        duration: exercise.duration,
+        date: exercise.date.toDateString()
+      };
+    });
 
     res.json({
-      _id: user._id.toString(),
       username: user.username,
       count: log.length,
+      _id: user._id,
       log: log
     });
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      error: error.message
+    });
   }
 });
 
-const listener = app.listen(process.env.PORT || 3000, () => {
-  console.log('Your app is listening on port ' + listener.address().port)
-})
+
+// ====================
+// START SERVER
+// ====================
+
+const listener = app.listen(process.env.PORT || 3000, function() {
+  console.log(
+    'Your app is listening on port ' +
+    listener.address().port
+  );
+});
